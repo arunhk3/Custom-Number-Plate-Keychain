@@ -96,7 +96,7 @@
           </select></label>
         <label class="f"><span>Letter spacing <b id="spacingV"></b></span><input id="spacing" type="range" min="-0.5" max="2" step="0.1" value="0.3"></label>
       </div>
-      <label class="f"><span>Text height <b id="textHV"></b></span><input id="textH" type="range" min="4" max="30" step="0.5" value="12"></label>
+      <label class="f"><span>Max text height <b id="textHV"></b></span><input id="textH" type="range" min="4" max="30" step="0.5" value="12"></label>
     </section>
 
     <section>
@@ -124,11 +124,11 @@
 
     <section>
       <h2>Size (mm)</h2>
-      <label class="chk"><input id="autoLen" type="checkbox" checked> Length fits the text automatically</label>
-      <label class="f" id="lenWrap"><span>Plate length <b id="lenV"></b></span><input id="len" type="range" min="35" max="110" step="1" value="70"></label>
-      <label class="f"><span>Plate height <b id="hV"></b></span><input id="h" type="range" min="10" max="50" step="0.5" value="30"></label>
+      <label class="chk"><input id="autoLen" type="checkbox"> Length fits the text automatically</label>
+      <label class="f" id="lenWrap"><span>Overall length (incl. tab) <b id="lenV"></b></span><input id="len" type="range" min="35" max="150" step="1" value="70"></label>
+      <label class="f"><span>Plate height <b id="hV"></b></span><input id="h" type="range" min="10" max="50" step="0.5" value="15"></label>
       <div class="row">
-        <label class="f"><span>Base thickness <b id="thickV"></b></span><input id="thick" type="range" min="1.6" max="5" step="0.2" value="2.4"></label>
+        <label class="f"><span>Total thickness <b id="thickV"></b></span><input id="thick" type="range" min="2.4" max="6" step="0.2" value="3"></label>
         <label class="f"><span>Raised detail <b id="reliefV"></b></span><input id="relief" type="range" min="0.4" max="1.6" step="0.2" value="0.6"></label>
       </div>
       <div class="row">
@@ -319,7 +319,11 @@ function wheel(cx,cy,R,spokes){
 // Build the whole design as layered 2D shapes. Pure data, no three.js.
 function buildDesign(p){
   const warnings=[];
-  const H=p.h, T=p.thick, rel=p.relief, embRel=0.4;
+  const H=p.h, rel=p.relief, embRel=0.4;
+  const hasEmblem = p.band && (p.wheel || (p.bandTxt||'').trim().length>0);
+  // p.thick is the TOTAL thickness; the base takes whatever the raised layers leave.
+  const T=Math.max(1.2, p.thick-rel-(hasEmblem?embRel:0));
+  if(T>p.thick-rel-(hasEmblem?embRel:0)+1e-6) warnings.push('Total thickness is too thin for the raised details; base kept at 1.2 mm.');
   const bi=0.8, bw=0.8, gap=0.8;
   const inner = p.border ? bi+bw : 0.6;
   const str = p.upper ? p.text.toUpperCase() : p.text;
@@ -330,19 +334,22 @@ function buildDesign(p){
 
   let cap=p.textH;
   const maxCap=H-2*(inner+gap)-0.4;
-  if(cap>maxCap){ cap=maxCap; warnings.push(`Text height capped at ${cap.toFixed(1)} mm to fit inside the plate height.`); }
+  if(cap>maxCap) cap=maxCap;
+  // tab size (needed up front so a fixed length can include the tab)
+  const rr=Math.min(p.radius,H/2-0.5);
+  const tabH=Math.min(H*0.6, 11, H-2*rr);
+  const tabExt=tabH+1.2;
   let t=layoutText(str||' ',p.font,cap,p.spacing);
   let W;
   if(p.autoLen){ W=Math.max(textX0+t.width+rightPad, H*1.6); }
   else{
-    W=p.len; const avail=W-textX0-rightPad;
-    if(t.width>avail && t.width>0){ cap=cap*avail/t.width; t=layoutText(str,p.font,cap,p.spacing*avail/t.width); warnings.push(`Text shrunk to ${cap.toFixed(1)} mm tall to fit a ${W} mm plate. Turn on auto length or make the plate longer.`); }
+    W=p.len-tabExt; const avail=W-textX0-rightPad;
+    if(t.width>avail && t.width>0){ cap=cap*avail/t.width; t=layoutText(str,p.font,cap,p.spacing*avail/t.width); }
   }
   const tx=textX0+((W-rightPad-textX0)-t.width)/2 - t.minX;
   const ty=H/2-cap/2;
   const textShapes=moveS(t.shapes,tx,ty);
 
-  const tabH=Math.min(H*0.6, 11, H-2*Math.min(p.radius,H/2-0.5));
   const base=baseOutline(W,H,p.radius,tabH);
   const holeR=Math.min(p.hole/2, base.tr-1.2);
   if(holeR<p.hole/2-1e-6) warnings.push(`Ring hole reduced to Ø${(holeR*2).toFixed(1)} mm to keep a 1.2 mm wall around it.`);
@@ -380,9 +387,10 @@ function buildDesign(p){
     }
     if(em.length) parts.push({key:'emblem', label:'Band emblem', color:p.cEmblem, z0:T+rel, h:embRel, shapes:em});
   }
-  if(cap<3) warnings.push('Main text is under 3 mm tall; thin strokes may not print well.');
+  if(cap<3) warnings.push(`Main text is only ${cap.toFixed(1)} mm tall to fit this length; thin strokes may not print well. Shorten the text or make the plate longer.`);
   const minX=base.cx-base.tr;
-  return {parts, W, H, minX, totalW:W-minX, height:T+rel+(p.band?embRel:0), cap, warnings};
+  const top=Math.max(...parts.map(q=>q.z0+q.h));
+  return {parts, W, H, minX, totalW:W-minX, height:top, cap, warnings};
 }
 
 /* ---------- exporters ---------- */
@@ -526,8 +534,8 @@ function rebuild(){
     leg.push(`<div><i style="background:${part.color}"></i>${part.label}<span class="z">F${fm.get(part.color.toLowerCase())} · ${part.z0.toFixed(1)}–${(part.z0+part.h).toFixed(1)}</span></div>`);
   }
   $('legend').innerHTML=leg.join('');
-  if(!p.autoLen) $('len').value=Math.round(design.W);
-  else $('lenV').textContent=design.W.toFixed(0)+' mm';
+  
+  if(p.autoLen) $('lenV').textContent=design.totalW.toFixed(0)+' mm';
   const grams=vol/1000*1.24;
   $('sSize').textContent=`${design.totalW.toFixed(1)} × ${design.H.toFixed(1)} × ${design.height.toFixed(1)} mm`;
   $('sWeight').textContent=`${grams.toFixed(1)} g`;
