@@ -36,6 +36,16 @@
   .preset.on{border-color:var(--accent);background:var(--accent-soft)}
   .sw{display:inline-flex;width:30px;height:12px;border-radius:3px;overflow:hidden;border:1px solid #0002;flex:none}
   .sw i{flex:1}
+  .dims{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:end;gap:6px;margin-bottom:10px}
+  .dims label{display:flex;flex-direction:column;gap:4px}
+  .dims small{font-size:11.5px;color:var(--muted)}
+  .dims input{font-size:16px;font-weight:600;text-align:center;padding:8px 4px;font-variant-numeric:tabular-nums}
+  .dims input:disabled{background:#f3f4f6;color:var(--muted)}
+  .dims .x{color:var(--muted);padding-bottom:10px}
+  .sizes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+  .sizes button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 10px;font:inherit;font-size:12px;cursor:pointer;font-variant-numeric:tabular-nums}
+  .sizes button:hover{border-color:#c7cdd8}
+  .sizes button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
   .colors{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .color{display:flex;align-items:center;gap:8px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;padding:5px 8px}
   .color input{width:26px;height:22px;border:none;padding:0;background:none;cursor:pointer}
@@ -100,6 +110,21 @@
     </section>
 
     <section>
+      <h2>Dimensions (mm)</h2>
+      <div class="dims">
+        <label><small>Length</small><input id="len" type="number" min="35" max="200" step="1" value="70"></label>
+        <span class="x">×</span>
+        <label><small>Height</small><input id="h" type="number" min="10" max="50" step="0.5" value="15"></label>
+        <span class="x">×</span>
+        <label><small>Thickness</small><input id="thick" type="number" min="2.4" max="6" step="0.2" value="3"></label>
+      </div>
+      <div class="sizes" id="sizes"></div>
+      <label class="chk"><input id="autoLen" type="checkbox"> Length fits the text automatically</label>
+      <p class="hint">Length includes the ring tab. Thickness is the total height; text shrinks to fit the length.</p>
+      <div class="warn" id="warn"></div>
+    </section>
+
+    <section>
       <h2>Style</h2>
       <div class="presets" id="presets"></div>
       <div style="height:10px"></div>
@@ -123,19 +148,12 @@
     </section>
 
     <section>
-      <h2>Size (mm)</h2>
-      <label class="chk"><input id="autoLen" type="checkbox"> Length fits the text automatically</label>
-      <label class="f" id="lenWrap"><span>Overall length (incl. tab) <b id="lenV"></b></span><input id="len" type="range" min="35" max="150" step="1" value="70"></label>
-      <label class="f"><span>Plate height <b id="hV"></b></span><input id="h" type="range" min="10" max="50" step="0.5" value="15"></label>
+      <h2>Details</h2>
       <div class="row">
-        <label class="f"><span>Total thickness <b id="thickV"></b></span><input id="thick" type="range" min="2.4" max="6" step="0.2" value="3"></label>
         <label class="f"><span>Raised detail <b id="reliefV"></b></span><input id="relief" type="range" min="0.4" max="1.6" step="0.2" value="0.6"></label>
-      </div>
-      <div class="row">
         <label class="f"><span>Corner radius <b id="radiusV"></b></span><input id="radius" type="range" min="0.5" max="5" step="0.25" value="2.5"></label>
-        <label class="f"><span>Ring hole Ø <b id="holeV"></b></span><input id="hole" type="range" min="2.5" max="6" step="0.25" value="4"></label>
       </div>
-      <div class="warn" id="warn"></div>
+      <label class="f"><span>Ring hole Ø <b id="holeV"></b></span><input id="hole" type="range" min="2.5" max="6" step="0.25" value="4"></label>
     </section>
 
     <section>
@@ -458,7 +476,12 @@ const $ = id => document.getElementById(id);
 const ids=['txt','upper','font','spacing','textH','band','bandTxt','bandW','wheel','border','autoLen','len','h','thick','relief','radius','hole','rate','flat','cBase','cText','cBand','cEmblem'];
 const units={spacing:' mm',textH:' mm',bandW:' mm',len:' mm',h:' mm',thick:' mm',relief:' mm',radius:' mm',hole:' mm'};
 function readParams(){
-  const v=id=>$(id).type==='checkbox'?$(id).checked:($(id).type==='range'||$(id).type==='number'?parseFloat($(id).value):$(id).value);
+  const v=id=>{const el=$(id);
+    if(el.type==='checkbox') return el.checked;
+    if(el.type==='range') return parseFloat(el.value);
+    if(el.type==='number'){let x=parseFloat(el.value); if(isNaN(x)) x=parseFloat(el.defaultValue);
+      if(el.min!=='') x=Math.max(+el.min,x); if(el.max!=='') x=Math.min(+el.max,x); return x;}
+    return el.value;};
   return {text:v('txt'), upper:v('upper'), font:v('font'), spacing:v('spacing'), textH:v('textH'), band:v('band'), bandTxt:v('bandTxt'),
     bandW:v('bandW'), wheel:v('wheel'), border:v('border'), autoLen:v('autoLen'), len:v('len'), h:v('h'), thick:v('thick'),
     relief:v('relief'), radius:v('radius'), hole:v('hole'), rate:v('rate')||0, flat:v('flat')||0,
@@ -474,6 +497,11 @@ applyPreset(PRESETS[0]);
 ['cBase','cText','cBand','cEmblem'].forEach(id=>$(id).addEventListener('input',()=>document.querySelectorAll('.preset').forEach(b=>b.classList.remove('on'))));
 ids.forEach(id=>{$(id).addEventListener('input',schedule);$(id).addEventListener('change',schedule);});
 
+const SIZES=[[50,12,3],[60,15,3],[70,15,3],[80,18,3.5],[100,20,4]];
+SIZES.forEach(([L,Hh,T])=>{const b=document.createElement('button');b.dataset.s=`${L},${Hh},${T}`;b.textContent=`${L} × ${Hh} × ${T}`;
+  b.onclick=()=>{$('autoLen').checked=false;$('len').value=L;$('h').value=Hh;$('thick').value=T;schedule();};$('sizes').appendChild(b);});
+['len','h','thick'].forEach(id=>$(id).addEventListener('change',()=>{const el=$(id);let x=parseFloat(el.value);if(isNaN(x))x=parseFloat(el.defaultValue);
+  x=Math.min(+el.max,Math.max(+el.min,x));if(+el.value!==x){el.value=x;toast(`${id==='len'?'Length':id==='h'?'Height':'Thickness'} kept within ${el.min}–${el.max} mm`);}}));
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('show'),2600);}
 
 /* ---------- three.js scene ---------- */
@@ -522,7 +550,8 @@ let design=null, centre=new THREE.Vector3(), firstFit=true;
 function rebuild(){
   const p=readParams();
   Object.keys(units).forEach(k=>{const el=$(k+'V'); if(el) el.textContent=(+p[k]).toFixed(k==='len'?0:1)+units[k];});
-  $('lenWrap').style.opacity=p.autoLen?0.45:1; $('len').disabled=p.autoLen;
+  $('len').disabled=p.autoLen;
+  document.querySelectorAll('#sizes button').forEach(b=>{const [L,Hh,T]=b.dataset.s.split(',').map(Number); b.classList.toggle('on',!p.autoLen&&L===p.len&&Hh===p.h&&T===p.thick);});
   ['bandTxt','bandW','wheel'].forEach(id=>$(id).disabled=!p.band);
   design=buildDesign(p);
   group.children.forEach(m=>{m.geometry.dispose();m.material.dispose();}); group.clear();
@@ -535,7 +564,7 @@ function rebuild(){
   }
   $('legend').innerHTML=leg.join('');
   
-  if(p.autoLen) $('lenV').textContent=design.totalW.toFixed(0)+' mm';
+  if(p.autoLen) $('len').value=design.totalW.toFixed(0);
   const grams=vol/1000*1.24;
   $('sSize').textContent=`${design.totalW.toFixed(1)} × ${design.H.toFixed(1)} × ${design.height.toFixed(1)} mm`;
   $('sWeight').textContent=`${grams.toFixed(1)} g`;

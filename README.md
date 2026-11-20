@@ -41,7 +41,7 @@ Fonts used (all SIL Open Font License): Roboto Condensed ExtraBold (instanced fr
 - In Bambu Studio: open the .3mf, then point filaments 1, 2, 3 at the right AMS slots/colours, and slice.
 - **Batch export** puts every line into one 3MF, laid out on a 256 mm plate. If they don't fit, use Arrange in Bambu Studio.
 - On the Claude-hosted copy of the page, the .3mf comes inside a .zip (that page can't save .3mf directly). The local `keychain-designer.html` saves the .3mf itself.
-- Default size: **70 x 15 x 3 mm** overall (length includes the ring tab).
+- Default size: **70 x 15 x 3 mm** overall (length includes the ring tab). Set Length x Height x Thickness in the **Dimensions** boxes at the top of the page, or pick a quick size (50x12x3, 60x15x3, 70x15x3, 80x18x3.5, 100x20x4).
 - Stack for 3 mm total: 2.0 mm base, 0.6 mm raised text/border/band, emblem a further 0.4 mm on top of the band. "Total thickness" sets the overall height; the base takes up the rest.
 - With a fixed length, "Max text height" is an upper limit: the text shrinks to fit the length (a warning shows if it drops under 3 mm). Tick "Length fits the text automatically" to keep the text size and let the plate grow instead.
 - Weight = solid volume x 1.24 g/cm3 (PLA), an upper bound. Price = grams x rate + flat fee (defaults ₹3/g + ₹5).
