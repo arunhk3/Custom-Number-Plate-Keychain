@@ -100,8 +100,8 @@
       <div class="row">
         <label class="f"><span>Font</span>
           <select id="font">
+            <option value="heavy" selected>Heavy (Anton)</option>
             <option value="plate">Plate (condensed)</option>
-            <option value="heavy">Heavy (Anton)</option>
             <option value="wide">Wide (Archivo Black)</option>
           </select></label>
         <label class="f"><span>Letter spacing <b id="spacingV"></b></span><input id="spacing" type="range" min="-0.5" max="2" step="0.1" value="0.3"></label>
@@ -322,8 +322,16 @@ function baseOutline(W,H,r,tabH){
   return {pts, cx, cy, tr};
 }
 
-function wheel(cx,cy,R,spokes){
-  const shapes=[]; const ring=Math.max(0.5,R*0.16), hub=Math.max(0.55,R*0.22), sw=Math.max(0.45,R*0.1);
+// Minimum feature sizes for the band emblem so it survives ironing on a 0.4 mm nozzle:
+// strokes span at least two extrusion lines, gaps are wide enough not to bridge shut.
+const EMB_MIN_STROKE=0.85, EMB_MIN_GAP=0.8;
+
+function wheel(cx,cy,R){
+  const shapes=[];
+  const ring=Math.max(EMB_MIN_STROKE,R*0.2), hub=Math.max(0.9,R*0.28), sw=Math.max(EMB_MIN_STROKE,R*0.12);
+  // as many spokes as fit with a printable gap between them at mid-radius (4..12)
+  const rMid=(hub+R-ring)/2;
+  const spokes=Math.max(4,Math.min(12,Math.floor(2*Math.PI*rMid/(sw+EMB_MIN_GAP))));
   shapes.push({outer:circle(cx,cy,R), holes:[circle(cx,cy,R-ring)]});
   shapes.push({outer:circle(cx,cy,hub,24), holes:[]});
   for(let i=0;i<spokes;i++){
@@ -388,20 +396,24 @@ function buildDesign(p){
     const em=[];
     const lbl=(p.bandTxt||'').toUpperCase();
     const hasLbl=lbl.trim().length>0;
-    const labelCap=Math.min(bandH*0.22, bandW*0.7/Math.max(1,lbl.length*0.62));
+    // Label uses the widest, heaviest font (Archivo Black, stroke ≈ 0.32 × cap) so strokes stay
+    // printable. It gets ~30% of the band height (all of it without the wheel), limited by the width.
+    const LBL_FONT='wide', LBL_STROKE=0.32, lblSp=0.25, pad=0.6;
+    let lc=0;
     if(hasLbl){
-      let lt=layoutText(lbl,'plate',labelCap,0.15);
-      const maxW=bandW-1.0; let lc=labelCap;
-      if(lt.width>maxW){ lc=labelCap*maxW/lt.width; lt=layoutText(lbl,'plate',lc,0.15*maxW/lt.width); }
-      const ly=bandY+bandH*(p.wheel?0.1:0.5)-(p.wheel?0:lc/2);
+      const maxW=bandW-1.0;
+      lc=Math.min(p.wheel?bandH*0.3:bandH*0.5, 4.5);
+      let lt=layoutText(lbl,LBL_FONT,lc,lblSp);
+      if(lt.width>maxW){ lc=lc*maxW/lt.width; lt=layoutText(lbl,LBL_FONT,lc,lblSp*maxW/lt.width); }
+      const ly=p.wheel ? bandY+pad : bandY+bandH/2-lc/2;
       em.push(...moveS(lt.shapes, bandX+bandW/2-lt.width/2-lt.minX, ly));
-      if(lc<1.6) warnings.push('Band label is under 1.6 mm tall and may not print cleanly with a 0.4 mm nozzle.');
+      if(lc*LBL_STROKE<EMB_MIN_STROKE) warnings.push(`Band label strokes are only ${(lc*LBL_STROKE).toFixed(2)} mm wide and may smear when ironing. Shorten the label, widen the band or turn off the wheel.`);
     }
     if(p.wheel){
-      const top=bandY+bandH-0.6, bottom=hasLbl? bandY+bandH*0.1+labelCap+0.7 : bandY+0.6;
-      const R=Math.min(bandW/2-0.6,(top-bottom)/2);
-      if(R>1.4) em.push(...wheel(bandX+bandW/2,(top+bottom)/2,R,R>3?12:8));
-      else warnings.push('Not enough room in the band for the wheel. Widen the band or raise the plate height.');
+      const top=bandY+bandH-pad, bottom=hasLbl? bandY+pad+lc+0.9 : bandY+pad;
+      const R=Math.min(bandW/2-pad,(top-bottom)/2);
+      if(R>=2.2) em.push(...wheel(bandX+bandW/2,(top+bottom)/2,R));
+      else warnings.push('Not enough room in the band for a printable wheel. Widen the band, raise the plate height or clear the band label.');
     }
     if(em.length) parts.push({key:'emblem', label:'Band emblem', color:p.cEmblem, z0:T+rel, h:embRel, shapes:em});
   }
