@@ -114,7 +114,7 @@
       <div class="dims">
         <label><small>Length</small><input id="len" type="number" min="35" max="200" step="1" value="70"></label>
         <span class="x">×</span>
-        <label><small>Height</small><input id="h" type="number" min="10" max="50" step="0.5" value="15"></label>
+        <label><small>Height</small><input id="h" type="number" min="10" max="50" step="0.5" value="18"></label>
         <span class="x">×</span>
         <label><small>Thickness</small><input id="thick" type="number" min="2.4" max="6" step="0.2" value="3"></label>
       </div>
@@ -199,6 +199,7 @@
 <div id="toast"></div>
 
 <script>window.KC_FONTS = __FONTS__;</script>
+<script>window.KC_BAMBU = __BAMBU__;</script>
 <script type="module">
 /* ===================== core geometry (no three.js) ===================== */
 const FONTS = window.KC_FONTS;
@@ -306,10 +307,10 @@ function roundRect(x,y,w,h,r,n=10){
 }
 const circle=(cx,cy,r,n=48)=>arcPts(cx,cy,r,0,2*Math.PI*(n-1)/n,n-1);
 
-// Plate outline with a rounded tab on the left; tab circle centre returned.
-function baseOutline(W,H,r,tabH){
-  r=Math.min(r,H/2-0.5); tabH=Math.min(tabH,H-2*r);
-  const tr=tabH/2, cx=-tr-1.2, cy=H/2, n=10;
+// Plate outline with a rounded tab on the left: radius tr, centred at x=cx (cx<0, left of the plate).
+function baseOutline(W,H,r,tr,cx){
+  r=Math.min(r,H/2-0.5);
+  const cy=H/2, n=10;
   const pts=[
     ...arcPts(W-r,r,r,-Math.PI/2,0,n),
     ...arcPts(W-r,H-r,r,0,Math.PI/2,n),
@@ -326,20 +327,23 @@ function baseOutline(W,H,r,tabH){
 // strokes span at least two extrusion lines, gaps are wide enough not to bridge shut.
 const EMB_MIN_STROKE=0.85, EMB_MIN_GAP=0.8;
 
+// Simplified Ashoka Chakra. The real emblem has 24 spokes, but at keychain size (5-9 mm wide)
+// 24 spokes are thinner than a nozzle line and don't slice. 8 straight spokes of a full
+// two-line width (0.85 mm) print reliably. Returns the gap between spokes at the rim so the caller can warn.
+const CHAKRA_SPOKES=8;
 function wheel(cx,cy,R){
   const shapes=[];
-  const ring=Math.max(EMB_MIN_STROKE,R*0.2), hub=Math.max(0.9,R*0.28), sw=Math.max(EMB_MIN_STROKE,R*0.12);
-  // as many spokes as fit with a printable gap between them at mid-radius (4..12)
-  const rMid=(hub+R-ring)/2;
-  const spokes=Math.max(4,Math.min(12,Math.floor(2*Math.PI*rMid/(sw+EMB_MIN_GAP))));
-  shapes.push({outer:circle(cx,cy,R), holes:[circle(cx,cy,R-ring)]});
-  shapes.push({outer:circle(cx,cy,hub,24), holes:[]});
-  for(let i=0;i<spokes;i++){
-    const a=i*2*Math.PI/spokes, ca=Math.cos(a), sa=Math.sin(a), nx=-sa, ny=ca;
-    const r0=hub*0.7, r1=R-ring*0.5, h=sw/2;
+  const ring=Math.max(EMB_MIN_STROKE,R*0.16), hub=Math.max(1.1,R*0.26), sw=EMB_MIN_STROKE;
+  const rIn=R-ring;
+  shapes.push({outer:circle(cx,cy,R,96), holes:[circle(cx,cy,rIn,96)]});
+  shapes.push({outer:circle(cx,cy,hub,32), holes:[]});
+  const r0=hub*0.5, r1=rIn+ring*0.4, h=sw/2;        // overlap hub and rim so it stays one piece
+  for(let i=0;i<CHAKRA_SPOKES;i++){
+    const a=i*2*Math.PI/CHAKRA_SPOKES, ca=Math.cos(a), sa=Math.sin(a), nx=-sa, ny=ca;
     shapes.push({outer:[[cx+ca*r0+nx*h,cy+sa*r0+ny*h],[cx+ca*r0-nx*h,cy+sa*r0-ny*h],[cx+ca*r1-nx*h,cy+sa*r1-ny*h],[cx+ca*r1+nx*h,cy+sa*r1+ny*h]], holes:[]});
   }
-  return shapes;
+  const rimGap=2*Math.PI*rIn/CHAKRA_SPOKES-sw;      // open gap between neighbouring spokes at the rim
+  return {shapes, rimGap};
 }
 
 // Build the whole design as layered 2D shapes. Pure data, no three.js.
@@ -363,8 +367,12 @@ function buildDesign(p){
   if(cap>maxCap) cap=maxCap;
   // tab size (needed up front so a fixed length can include the tab)
   const rr=Math.min(p.radius,H/2-0.5);
-  const tabH=Math.min(H*0.6, 11, H-2*rr);
-  const tabExt=tabH+1.2;
+  // The tab is sized from the hole, not the plate height: a 2.2 mm wall around the hole, and the
+  // hole sits just 0.6 mm clear of the plate edge, so the tab sticks out as little as possible.
+  const TAB_WALL=2.2, TAB_NECK=0.6;
+  const tr=Math.min(p.hole/2+TAB_WALL, (H-2*rr)/2);
+  const tabCx=-(Math.min(p.hole/2, tr-1.2)+TAB_NECK);
+  const tabExt=tr-tabCx;
   let t=layoutText(str||' ',p.font,cap,p.spacing);
   let W;
   if(p.autoLen){ W=Math.max(textX0+t.width+rightPad, H*1.6); }
@@ -376,7 +384,7 @@ function buildDesign(p){
   const ty=H/2-cap/2;
   const textShapes=moveS(t.shapes,tx,ty);
 
-  const base=baseOutline(W,H,p.radius,tabH);
+  const base=baseOutline(W,H,p.radius,tr,tabCx);
   const holeR=Math.min(p.hole/2, base.tr-1.2);
   if(holeR<p.hole/2-1e-6) warnings.push(`Ring hole reduced to Ø${(holeR*2).toFixed(1)} mm to keep a 1.2 mm wall around it.`);
   const baseShape={outer:base.pts, holes:[circle(base.cx,base.cy,holeR,40)]};
@@ -412,7 +420,10 @@ function buildDesign(p){
     if(p.wheel){
       const top=bandY+bandH-pad, bottom=hasLbl? bandY+pad+lc+0.9 : bandY+pad;
       const R=Math.min(bandW/2-pad,(top-bottom)/2);
-      if(R>=2.2) em.push(...wheel(bandX+bandW/2,(top+bottom)/2,R));
+      if(R>=2.2){
+        const w=wheel(bandX+bandW/2,(top+bottom)/2,R); em.push(...w.shapes);
+        if(w.rimGap<0.45) warnings.push(`The chakra is only ${(2*R).toFixed(1)} mm wide, so the gaps between its spokes (${w.rimGap.toFixed(2)} mm) may fill in. Use a taller plate, widen the band or clear the band label.`);
+      }
       else warnings.push('Not enough room in the band for a printable wheel. Widen the band, raise the plate height or clear the band label.');
     }
     if(em.length) parts.push({key:'emblem', label:'Band emblem', color:p.cEmblem, z0:T+rel, h:embRel, shapes:em});
@@ -509,7 +520,7 @@ applyPreset(PRESETS[0]);
 ['cBase','cText','cBand','cEmblem'].forEach(id=>$(id).addEventListener('input',()=>document.querySelectorAll('.preset').forEach(b=>b.classList.remove('on'))));
 ids.forEach(id=>{$(id).addEventListener('input',schedule);$(id).addEventListener('change',schedule);});
 
-const SIZES=[[50,12,3],[60,15,3],[70,15,3],[80,18,3.5],[100,20,4]];
+const SIZES=[[50,12,3],[60,15,3],[70,18,3],[80,18,3.5],[100,20,4]];
 SIZES.forEach(([L,Hh,T])=>{const b=document.createElement('button');b.dataset.s=`${L},${Hh},${T}`;b.textContent=`${L} × ${Hh} × ${T}`;
   b.onclick=()=>{$('autoLen').checked=false;$('len').value=L;$('h').value=Hh;$('thick').value=T;schedule();};$('sizes').appendChild(b);});
 ['len','h','thick'].forEach(id=>$(id).addEventListener('change',()=>{const el=$(id);let x=parseFloat(el.value);if(isNaN(x))x=parseFloat(el.defaultValue);
@@ -649,6 +660,40 @@ function meshObjectXML(id, m, dx, dy){
   return `  <object id="${id}" p:UUID="${uuid()}" type="model">\n   <mesh>\n    <vertices>\n${vs.join('\n')}\n    </vertices>\n    <triangles>\n${ts.join('\n')}\n    </triangles>\n   </mesh>\n  </object>`;
 }
 
+// Ironing defaults written into every export (Bambu option names; flow is a percent).
+const IRONING={ironing_type:'top', ironing_speed:'50', ironing_flow:'30%'};
+// Parts that must not be ironed: fine detail smears under the ironing pass.
+const NO_IRONING_PARTS=new Set(['emblem']);
+
+// Bambu Studio project settings from bambu-template.3mf (embedded at build time), resized to
+// `colors.length` filaments. Slot i reuses template filament (i mod n) for its profile, so
+// printer, process and filament settings all come from the user's own project.
+function bambuProjectConfig(colors, wipeXY){
+  const B=window.KC_BAMBU; if(!B) return null;
+  const t=B.config, cfg=JSON.parse(JSON.stringify(t));
+  const nT=t.filament_colour.length, N=colors.length, src=i=>i%nT;
+  for(const k of B.perFilament) cfg[k]=colors.map((_,i)=>t[k][src(i)]);
+  // per filament x extruder-variant lists are indexed through filament_self_index (1-based)
+  const rows=j=>t.filament_self_index.map((s,r)=>+s===j+1?r:-1).filter(r=>r>=0);
+  for(const k of [...B.perFilamentVariant,'filament_self_index'])
+    cfg[k]=colors.flatMap((_,i)=>rows(src(i)).map(r=>k==='filament_self_index'?String(i+1):t[k][r]));
+  // purge volumes: N x N matrix; slots sharing a template filament use the template's largest purge
+  const M=t.flush_volumes_matrix.map(Number), maxOff=Math.max(...M.filter((_,q)=>q%(nT+1)!==0));
+  cfg.flush_volumes_matrix=[];
+  for(let a=0;a<N;a++) for(let b=0;b<N;b++)
+    cfg.flush_volumes_matrix.push(String(a===b?0:src(a)===src(b)?maxOff:M[src(a)*nT+src(b)]));
+  if(t.flush_volumes_vector.length===2*nT) cfg.flush_volumes_vector=colors.flatMap((_,i)=>t.flush_volumes_vector.slice(2*src(i),2*src(i)+2));
+  if(t.filament_dev_value_count) cfg.filament_dev_value_count=t.filament_dev_value_count.map(e=>{
+    const [k,v]=e.split(':'); const c=v.split(','); return k+':'+colors.map((_,i)=>c[src(i)]).join(',');});
+  for(const k of ['different_settings_to_system','inherits_group']) if(t[k]&&t[k].length===nT+2)
+    cfg[k]=[t[k][0], ...colors.map((_,i)=>t[k][1+src(i)]), t[k][nT+1]];
+  cfg.filament_colour=colors.slice(); cfg.filament_multi_colour=colors.slice();
+  cfg.default_filament_colour=colors.map(()=>'');
+  Object.assign(cfg, IRONING);
+  if(wipeXY){ cfg.wipe_tower_x=[wipeXY[0].toFixed(3)]; cfg.wipe_tower_y=[wipeXY[1].toFixed(3)]; }
+  return cfg;
+}
+
 // One 3MF (Bambu Studio project layout): each keychain = one object, each colour = one part with its filament set.
 const BED=256;
 function build3MF(items){ // items: [{name, design}]
@@ -675,7 +720,8 @@ function build3MF(items){ // items: [{name, design}]
       const id=nextId++;
       meshes.push(meshObjectXML(id,m,dx,dy));
       comps.push(`    <component p:path="${path}" objectid="${id}" p:UUID="${uuid()}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>`);
-      parts.push(`    <part id="${id}" subtype="normal_part">\n      <metadata key="name" value="${esc(part.label)}"/>\n      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n      <metadata key="extruder" value="${fil.get(part.color.toLowerCase())}"/>\n    </part>`);
+      const noIron=NO_IRONING_PARTS.has(part.key)?`\n      <metadata key="ironing_type" value="no ironing"/>`:'';
+      parts.push(`    <part id="${id}" subtype="normal_part">\n      <metadata key="name" value="${esc(part.label)}"/>\n      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n      <metadata key="extruder" value="${fil.get(part.color.toLowerCase())}"/>${noIron}\n    </part>`);
     }
     files.push({name:path.slice(1), data:`${head}<model unit="millimeter" xml:lang="en-US" ${NS}>\n <metadata name="BambuStudio:3mfVersion">1</metadata>\n <resources>\n${meshes.join('\n')}\n </resources>\n <build/>\n</model>\n`});
     rels.push(` <Relationship Target="${path}" Id="rel-${k+1}" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>`);
@@ -683,16 +729,26 @@ function build3MF(items){ // items: [{name, design}]
     topObjs.push(`  <object id="${top}" p:UUID="${uuid()}" type="model">\n   <components>\n${comps.join('\n')}\n   </components>\n  </object>`);
     const [px,py]=pos[k];
     buildItems.push(`  <item objectid="${top}" p:UUID="${uuid()}" transform="1 0 0 0 1 0 0 0 1 ${(ox+px).toFixed(3)} ${(oy+py).toFixed(3)} 0" printable="1"/>`);
-    cfgObjs.push(`  <object id="${top}">\n    <metadata key="name" value="${esc(it.name)}"/>\n    <metadata key="extruder" value="1"/>\n${parts.join('\n')}\n  </object>`);
+    // Arachne (object-level in Bambu Studio) keeps features thinner than one line width, such as the
+    // chakra spokes and fine text. The Classic generator silently drops anything under ~0.42 mm.
+    cfgObjs.push(`  <object id="${top}">\n    <metadata key="name" value="${esc(it.name)}"/>\n    <metadata key="extruder" value="1"/>\n    <metadata key="wall_generator" value="arachne"/>\n${parts.join('\n')}\n  </object>`);
     plateInst.push(`    <model_instance>\n      <metadata key="object_id" value="${top}"/>\n      <metadata key="instance_id" value="0"/>\n      <metadata key="identify_id" value="${1000+k}"/>\n    </model_instance>`);
   });
   const title=items.length===1?items[0].name:`${items.length} keychains`;
+  // Prime tower (lower-left corner, ~35 mm wide): back-right corner, or front-right if the keychains reach there.
+  const grpTop=oy+totalH, grpRight=ox+maxX;
+  const wipe=[BED-55, (grpRight>BED-65 && grpTop>BED-75) ? 30 : BED-70];
+  const colors=[...fil.keys()].sort((a,b)=>fil.get(a)-fil.get(b));
+  const proj=bambuProjectConfig(colors, wipe);
+  const app=proj ? `BambuStudio-${proj.version}` : 'BambuStudio-01.09.00.00';
+  const filMaps=proj ? `\n    <metadata key="filament_map_mode" value="${esc(proj.filament_map_mode||'Auto For Flush')}"/>\n    <metadata key="filament_maps" value="${colors.map(()=>1).join(' ')}"/>` : '';
+  if(proj) files.push({name:'Metadata/project_settings.config', data:JSON.stringify(proj,null,4)+'\n'});
   files.unshift(
     {name:'[Content_Types].xml', data:`${head}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n <Default Extension="config" ContentType="text/xml"/>\n</Types>\n`},
     {name:'_rels/.rels', data:`${head}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n <Relationship Target="/3D/3dmodel.model" Id="rel-1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n</Relationships>\n`},
-    {name:'3D/3dmodel.model', data:`${head}<model unit="millimeter" xml:lang="en-US" ${NS}>\n <metadata name="Application">BambuStudio-01.09.00.00</metadata>\n <metadata name="BambuStudio:3mfVersion">1</metadata>\n <metadata name="Title">${esc(title)}</metadata>\n <metadata name="Designer">Number Plate Keychain Designer</metadata>\n <resources>\n${topObjs.join('\n')}\n </resources>\n <build p:UUID="${uuid()}">\n${buildItems.join('\n')}\n </build>\n</model>\n`},
+    {name:'3D/3dmodel.model', data:`${head}<model unit="millimeter" xml:lang="en-US" ${NS}>\n <metadata name="Application">${app}</metadata>\n <metadata name="BambuStudio:3mfVersion">1</metadata>\n <metadata name="Title">${esc(title)}</metadata>\n <metadata name="Designer">Number Plate Keychain Designer</metadata>\n <resources>\n${topObjs.join('\n')}\n </resources>\n <build p:UUID="${uuid()}">\n${buildItems.join('\n')}\n </build>\n</model>\n`},
     {name:'3D/_rels/3dmodel.model.rels', data:`${head}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n${rels.join('\n')}\n</Relationships>\n`},
-    {name:'Metadata/model_settings.config', data:`${head}<config>\n${cfgObjs.join('\n')}\n  <plate>\n    <metadata key="plater_id" value="1"/>\n    <metadata key="plater_name" value=""/>\n    <metadata key="locked" value="false"/>\n${plateInst.join('\n')}\n  </plate>\n</config>\n`},
+    {name:'Metadata/model_settings.config', data:`${head}<config>\n${cfgObjs.join('\n')}\n  <plate>\n    <metadata key="plater_id" value="1"/>\n    <metadata key="plater_name" value=""/>\n    <metadata key="locked" value="false"/>${filMaps}\n${plateInst.join('\n')}\n  </plate>\n</config>\n`},
   );
   return {blob:zip(files), filaments:fil, overflow};
 }
